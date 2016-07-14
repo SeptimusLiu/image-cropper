@@ -2,8 +2,8 @@
 
 """
 imaging.py
-author: danydliu
-图片裁剪和分发
+author: Septimus Liu
+Crop image automatically from either a remote address or base64 encoded stream.
 """
 
 import httplib2
@@ -18,61 +18,45 @@ import os
 from PIL import Image
 import random
 import re
+import sys
 import time
 import urllib
 
 
-_log_manager = LogManager('log')
-_logger_crop = _log_manager.logger_crop
-_casc_path = 'haarcascade_frontalface_default.xml'
+_casc_path = '../conf/haarcascade_frontalface_default.xml'
+_data_path = '../data'
 
-
-def crop_image(url, width, height, img_type='jpg', quality=100, **kwargs):
+def crop_image(url, width=0, height=0, img_type='jpg', quality=100, **kwargs):
     """
-    :param url: 源图片地址
-    :param width: 裁剪宽度
-    :param height: 裁剪高度
-    :param img_type: 图片类型
-    :param quality: 压缩质量
-    :return:
+    :param url: source image url
+    :param width: cropped width
+    :param height: cropped height
+    :param img_type: cropped image type
+    :param quality: cropped image quality
     """
     face_detect = kwargs.get('face_detect')
     qr_detect = kwargs.get('qr_detect')
-    site = 'http://img1.gtimg.com'
     root_path = '/rcdimg'
-    data_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'data')
     if not os.path.exists(data_path):
         os.mkdir(data_path)
     h = httplib2.Http('.cache')
-    proto, rest = urllib.splittype(url)
-    host, path = urllib.splithost(rest)
-    result = {}
-    headers = {
-        'User-agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:5.0) Gecko/20110619 Firefox/5.0'
-    }
-    if host:
-        headers['Host'] = host
     try:
-        (resp, content) = h.request(url, 'GET', headers=headers)
+        (resp, content) = h.request(url, 'GET')
         if content[0:20].find('The requested URL') != -1:
             raise httplib2.HttpLib2Error('URL cannot find in server')
     except httplib2.HttpLib2Error, err:
-        _logger_crop.error('%s request error: %s' % (url, str(err)))
-        return result
+        raise Exception('%s request error: %s' % (url, str(err)))
 
-    result[url] = {}
     try:
         # Fetch image stream from response
         img = Image.open(cStringIO.StringIO(content))
     except Exception, err:
-        _logger_crop.error('%s cropping failed: %s' % (url, err))
-        return result
+        raise Exception('%s opening image failed: %s' % (url, err))
 
     try:
         img_new = _get_sized_img(img, content, width, height, qr_detect, face_detect)
     except Exception, err:
-        _logger_crop.error('Sizing image_url: %s error: %s' % (url, err))
-        return result
+        raise Exception('Sizing image_url: %s error: %s' % (url, err))
 
     # Generate a random prefix for image file
     img_prefix = _gen_prefix()
@@ -80,7 +64,7 @@ def crop_image(url, width, height, img_type='jpg', quality=100, **kwargs):
 
     # Put it into directory by the sequence of date(yyyymmdd/h)
     dir_prefix = datetime.datetime.now()
-    dir_path = os.path.join(data_path, dir_prefix.strftime('%Y%m%d'))
+    dir_path = os.path.join(_data_path, dir_prefix.strftime('%Y%m%d'))
     if not os.path.exists(dir_path):
         os.mkdir(dir_path)
     subdir_path = os.path.join(dir_path, dir_prefix.strftime('%H'))
@@ -93,13 +77,7 @@ def crop_image(url, width, height, img_type='jpg', quality=100, **kwargs):
         img_localname = '%s.%s' % (img_prefix, img_type)
         local_path = os.path.join(subdir_path, img_localname)
         if os.path.exists(local_path):
-            _logger_crop.warn('%s image name existed' % local_path)
-            return result
-
-    img_destname = '%s_%dx%d.%s' % (img_prefix, width, height, img_type)
-    dest_path = '%s/%s/%s/%s' % (root_path, dir_prefix.strftime('%Y%m%d'),
-                                 dir_prefix.strftime('%H'),
-                                 img_destname)
+            raise Exception('%s image name existed' % local_path)
 
     try:
         # Save the image
@@ -107,45 +85,35 @@ def crop_image(url, width, height, img_type='jpg', quality=100, **kwargs):
             img_new.save(local_path, quality=quality)
         except IOError:
             img_new.convert('RGB').save(local_path, quality=quality)
-
-        # Dispatch image file
-        _octo_sendfile(dest_path, local_path)
-        result[url]['%dx%d' % (width, height)] = site + dest_path
     except Exception, err:
-        _logger_crop.error('%s saving or dispatching failed: %s' % (url, err))
+        raise Exception('%s saving image failed: %s' % (url, err))
 
-    return result
+    return local_path
 
 
-def crop_image_file(source, width, height, img_type='jpg', quality=100, **kwargs):
+def crop_image_file(source, width=0, height=0, img_type='jpg', quality=100, **kwargs):
     """
-    :param stream: 图片文件流
-    :param width: 裁剪宽度
-    :param height: 裁剪高度
-    :param img_type: 图片类型
-    :param quality: 压缩质量
-    :return:
+    :param url: source image base64 encoded stream
+    :param width: cropped width
+    :param height: cropped height
+    :param img_type: cropped image type
+    :param quality: cropped image quality
     """
     face_detect = kwargs.get('face_detect')
     qr_detect = kwargs.get('qr_detect')
-    site = 'http://img1.gtimg.com'
-    root_path = '/rcdimg'
-    data_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'data')
     if not os.path.exists(data_path):
         os.mkdir(data_path)
-    result = {}
+
     try:
         # Fetch image stream from response
         img = Image.open(cStringIO.StringIO(source))
     except Exception, err:
-        _logger_crop.error('file image cropping failed: %s' % err)
-        return result
+        raise Exception('%s opening image failed: %s' % (url, err))
 
     try:
-        img_new = _get_sized_img(img, source, width, height, qr_detect, face_detect)
+        img_new = _get_sized_img(img, content, width, height, qr_detect, face_detect)
     except Exception, err:
-        _logger_crop.error('Sizing image error: %s' % err)
-        return result
+        raise Exception('Sizing image_url: %s error: %s' % (url, err))
 
     # Generate a random prefix for image file
     img_prefix = _gen_prefix()
@@ -166,17 +134,7 @@ def crop_image_file(source, width, height, img_type='jpg', quality=100, **kwargs
         img_localname = '%s.%s' % (img_prefix, img_type)
         local_path = os.path.join(subdir_path, img_localname)
         if os.path.exists(local_path):
-            _logger_crop.warn('%s image name existed' % local_path)
-            return result
-
-    if width == 0 or height == 0:
-        img_destname = '%s.%s' % (img_prefix, img_type)
-    else:
-        img_destname = '%s_%dx%d.%s' % (img_prefix, width, height, img_type)
-
-    dest_path = '%s/%s/%s/%s' % (root_path, dir_prefix.strftime('%Y%m%d'),
-                                 dir_prefix.strftime('%H'),
-                                 img_destname)
+            raise Exception('%s image name existed' % local_path)
 
     try:
         # Save the image
@@ -184,26 +142,22 @@ def crop_image_file(source, width, height, img_type='jpg', quality=100, **kwargs
             img_new.save(local_path, quality=quality)
         except IOError:
             img_new.convert('RGB').save(local_path, quality=quality)
-
-        # Dispatch image file
-        _octo_sendfile(dest_path, local_path)
-        result = site + dest_path
     except Exception, err:
-        _logger_crop.error('file image saving or dispatching failed: %s' % err)
+        raise Exception('file image saving failed: %s' % err)
 
-    return result
+    return local_path
 
 
-def _get_sized_img(img, content, width, height, qr_detect, face_detect):
+def _get_sized_img(img, content, width, height, qr_detect=0, face_detect=0):
     """
-    根据比例裁剪并压缩图片
-    :param img: 图片对象
-    :param content: 图片内容
-    :param width: 宽度
-    :param height: 高度
-    :param qr_detect: 是否启用二维码识别
-    :param face_detect: 是否启用人脸识别
-    :return: 处理后的img对象
+    Croping image according to assigned width and height
+    :param img: image object
+    :param content: image content
+    :param width: cropped image width
+    :param height: cropped image height
+    :param qr_detect: whether enable QRcode detection
+    :param face_detect: whether enable face detection
+    :return: cropped image object
     """
     if not img:
         raise Exception('empty img object')
@@ -270,9 +224,9 @@ def _get_sized_img(img, content, width, height, qr_detect, face_detect):
 
 def _crop_center(img):
     """
-    获取人脸识别后的图片裁剪中心
-    :param img_content: 图片文件流
-    :return: 计算后的裁剪中心
+    Calculate the cropping center by face detecting
+    :param img: image object
+    :return: coordination of cropping center: [x, y]
     """
     # Create haar cascade
     face_cascade = cv2.CascadeClassifier(_casc_path)
@@ -306,9 +260,9 @@ def _crop_center(img):
 
 def qrcode_detect(img):
     """
-    检测图片中是否有二维码
-    :param img: 原图片
-    :return: 真值
+    Detect if there is QRcode in given image
+    :param img: image object
+    :return: boolean value if QRcode is existed
     """
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     gb = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -335,6 +289,11 @@ def qrcode_detect(img):
 
 
 def _variance(data):
+    """
+    Calculate variance for a list of number
+    :param data: list of number
+    :return: float variance
+    """
     e = 0
     d = 0
     n = len(data)
@@ -348,40 +307,30 @@ def _variance(data):
 
 
 def _gen_prefix():
+    """
+    Generate a random prefix for image file
+    :return: string prefix
+    """
     timestamp = str(int(time.time() * 1000))[-5:-1]
     code = ''.join([str(random.randint(0, 9)) for x in xrange(0, 4)])
     prefix = '%s%s' % (timestamp, code)
     return prefix
 
 
-def _octo_sendfile(dest, local):
-    ip = '127.0.0.1'
-    port = 21821
-    bin_path = '/usr/local/file_dispatcher/bin/octoSend'
-    file_type = 1
-    site = 'img1'
-
-    if not (dest and local):
-        raise Exception('Dest and local filename must not be None')
-
-    status, cmd = commands.getstatusoutput(
-        '%s %s %d %d %s %s %s' % (bin_path, ip, port, file_type, site, dest, local)
-    )
-    # status, cmd = commands.getstatusoutput(
-    #     '/usr/local/file_dispatcher/bin/octoSend 127.0.0.1 21821 1 img1 /rcdimg/cropped.jpg /data/rcdimg/test_img.jpg')
-    if str(status) == '0':
-        ret = re.sub('\s+', ' ', cmd).split(' ')[1]
-        if ret != '0':
-            raise Exception('Send file failed, ret code is ' + ret)
-    else:
-        raise Exception('Octosend cmd exec failed')
-
-
 if __name__ == '__main__':
-    print(crop_image('http://img1.gtimg.com/news/pics/hv1/21/77/2098/136442106.jpg',
-                     160, 90, face_detect=1))
+    if len(sys.argv) <= 1:
+        print('Not enough params!')
+        exit()
+    elif len(sys.argv) == 2:
+        try:
+            url = sys.argv[1]
+            local_path = crop_image(url)
+            print('Cropped successfully! Image path is %s' % local_path)
+        except Exception, err:
+            print(err)
+    # print(crop_image('http://img1.gtimg.com/news/pics/hv1/21/77/2098/136442106.jpg',
+    #                  160, 90, face_detect=1))
     # print(crop_image_file(source='http://www.weixinju.com/uploadfile/2012/1206/20121206104941268.jpg',
     #                       img_type='jpg',
     #                       height=0,
     #                       width=0))
-
