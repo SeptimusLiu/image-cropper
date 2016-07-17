@@ -361,7 +361,7 @@ if __name__ == '__main__':
                                          img_type=result.type,
                                          quality=result.quality,
                                          face_detect=result.face_detect)
-            print('Cropped remote image successfully! Image path is %s' % local_path)
+            print('Cropped image file successfully! Image path is %s' % local_path)
         elif mode == 'url':
             local_path = crop_image(source,
                                     width=result.width,
@@ -369,7 +369,7 @@ if __name__ == '__main__':
                                     img_type=result.type,
                                     quality=result.quality,
                                     face_detect=result.face_detect)
-            print('Cropped image file successfully! Image path is %s' % local_path)
+            print('Cropped remote image successfully! Image path is %s' % local_path)
         else:
             raise Exception('Unhandled args')
     except Exception, err:
