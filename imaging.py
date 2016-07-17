@@ -6,25 +6,23 @@ author: Septimus Liu
 Crop image automatically from either a remote address or base64 encoded stream.
 """
 
+import argparse
 import httplib2
-import commands
 import cStringIO
 import cv2
 import datetime
-from log_manager import LogManager
 import math
 import numpy as np
 import os
 from PIL import Image
 import random
-import re
 import sys
 import time
-import urllib
 
 
-_casc_path = '../conf/haarcascade_frontalface_default.xml'
-_data_path = '../data'
+_casc_path = 'conf/haarcascade_frontalface_default.xml'
+_data_path = 'data'
+
 
 def crop_image(url, width=0, height=0, img_type='jpg', quality=100, **kwargs):
     """
@@ -35,10 +33,8 @@ def crop_image(url, width=0, height=0, img_type='jpg', quality=100, **kwargs):
     :param quality: cropped image quality
     """
     face_detect = kwargs.get('face_detect')
-    qr_detect = kwargs.get('qr_detect')
-    root_path = '/rcdimg'
-    if not os.path.exists(data_path):
-        os.mkdir(data_path)
+    if not os.path.exists(_data_path):
+        os.mkdir(_data_path)
     h = httplib2.Http('.cache')
     try:
         (resp, content) = h.request(url, 'GET')
@@ -49,12 +45,12 @@ def crop_image(url, width=0, height=0, img_type='jpg', quality=100, **kwargs):
 
     try:
         # Fetch image stream from response
-        img = Image.open(cStringIO.StringIO(content))
+        img = Image.open( cStringIO.StringIO(content))
     except Exception, err:
         raise Exception('%s opening image failed: %s' % (url, err))
 
     try:
-        img_new = _get_sized_img(img, content, width, height, qr_detect, face_detect)
+        img_new = _get_sized_img(img, content, width, height, face_detect)
     except Exception, err:
         raise Exception('Sizing image_url: %s error: %s' % (url, err))
 
@@ -91,7 +87,7 @@ def crop_image(url, width=0, height=0, img_type='jpg', quality=100, **kwargs):
     return local_path
 
 
-def crop_image_file(source, width=0, height=0, img_type='jpg', quality=100, **kwargs):
+def crop_image_file(filename, width=0, height=0, img_type='jpg', quality=100, **kwargs):
     """
     :param url: source image base64 encoded stream
     :param width: cropped width
@@ -100,20 +96,22 @@ def crop_image_file(source, width=0, height=0, img_type='jpg', quality=100, **kw
     :param quality: cropped image quality
     """
     face_detect = kwargs.get('face_detect')
-    qr_detect = kwargs.get('qr_detect')
-    if not os.path.exists(data_path):
-        os.mkdir(data_path)
+    if not os.path.exists(_data_path):
+        os.mkdir(_data_path)
 
     try:
         # Fetch image stream from response
-        img = Image.open(cStringIO.StringIO(source))
+        img = Image.open(filename)
     except Exception, err:
-        raise Exception('%s opening image failed: %s' % (url, err))
+        raise Exception('%s opening image file failed: %s' % (filename, err))
 
     try:
-        img_new = _get_sized_img(img, content, width, height, qr_detect, face_detect)
+        fp = open(filename, 'rb')
+        content = fp.read()
+        img_new = _get_sized_img(img, content, width, height, face_detect)
+        fp.close()
     except Exception, err:
-        raise Exception('Sizing image_url: %s error: %s' % (url, err))
+        raise Exception('Sizing image file: %s error: %s' % (filename, err))
 
     # Generate a random prefix for image file
     img_prefix = _gen_prefix()
@@ -121,7 +119,7 @@ def crop_image_file(source, width=0, height=0, img_type='jpg', quality=100, **kw
 
     # Put it into directory by the sequence of date(yyyymmdd/h)
     dir_prefix = datetime.datetime.now()
-    dir_path = os.path.join(data_path, dir_prefix.strftime('%Y%m%d'))
+    dir_path = os.path.join(_data_path, dir_prefix.strftime('%Y%m%d'))
     if not os.path.exists(dir_path):
         os.mkdir(dir_path)
     subdir_path = os.path.join(dir_path, dir_prefix.strftime('%H'))
@@ -143,19 +141,63 @@ def crop_image_file(source, width=0, height=0, img_type='jpg', quality=100, **kw
         except IOError:
             img_new.convert('RGB').save(local_path, quality=quality)
     except Exception, err:
-        raise Exception('file image saving failed: %s' % err)
+        raise Exception('Image file saving failed: %s' % err)
 
     return local_path
 
 
-def _get_sized_img(img, content, width, height, qr_detect=0, face_detect=0):
+def qrcode_detect(filename):
+    """
+    Detect if there is QRcode in given image
+    :param img: image object
+    :return: boolean value if QRcode is existed
+    """
+
+    try:
+        # Fetch image stream from response
+        fp = open(filename, 'rb')
+        content = fp.read()
+        fp.close()
+    except Exception, err:
+        raise Exception('%s opening image file failed: %s' % (filename, err))
+
+    try:
+        img_detect = np.asarray(bytearray(content), dtype='uint8')
+        img = cv2.imdecode(img_detect, cv2.IMREAD_COLOR)
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gb = cv2.GaussianBlur(gray, (5, 5), 0)
+        edges = cv2.Canny(gb, 100, 200)
+
+        contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        if hierarchy is None or contours is None or not (len(hierarchy) and len(contours)):
+            return False
+        hierarchy = hierarchy[0]
+        found = []
+        for i in range(len(contours)):
+            k = i
+            c = 0
+            while hierarchy[k][2] != -1:
+                k = hierarchy[k][2]
+                c += 1
+            if c >= 5:
+                found.append(i)
+
+        if len(found) == 3 and _variance(found) > 20:
+            return True
+        else:
+            return False
+    except Exception, err:
+        raise Exception('Detecting image file %s failed: %s' % (filename, err))
+
+
+def _get_sized_img(img, content, width, height, face_detect=0):
     """
     Croping image according to assigned width and height
     :param img: image object
     :param content: image content
     :param width: cropped image width
     :param height: cropped image height
-    :param qr_detect: whether enable QRcode detection
     :param face_detect: whether enable face detection
     :return: cropped image object
     """
@@ -170,14 +212,12 @@ def _get_sized_img(img, content, width, height, qr_detect=0, face_detect=0):
         else:
             center = [img_w / 2, 0]
 
-        if qr_detect or face_detect:
+        if face_detect:
             try:
                 # Read image as numpy array
                 img_detect = np.asarray(bytearray(content), dtype='uint8')
                 img_detect = cv2.imdecode(img_detect, cv2.IMREAD_COLOR)
 
-                if qr_detect and qrcode_detect(img_detect):
-                    raise Exception('QRCode is found.')
                 if face_detect:
                     center = _crop_center(img_detect)
             except Exception, err:
@@ -192,7 +232,6 @@ def _get_sized_img(img, content, width, height, qr_detect=0, face_detect=0):
 
         # Crop image according to the ratio
         if img_w > img_h * ratio:
-            # left = int((img_w - img_h * ratio) / 2)
             left = center[0] - int(img_h * ratio / 2)
             if left < 0:
                 left = 0
@@ -200,9 +239,6 @@ def _get_sized_img(img, content, width, height, qr_detect=0, face_detect=0):
                 left = img_w - int(img_h * ratio)
             right = left + int(img_h * ratio)
         else:
-            # top = int((img_h - img_w / ratio) / 2)
-            # bottom -= top
-
             top = center[1] - int(img_w / (ratio * 2))
             if top < 0:
                 top = 0
@@ -210,12 +246,7 @@ def _get_sized_img(img, content, width, height, qr_detect=0, face_detect=0):
                 top = img_h - int(img_w / ratio)
             bottom = top + int(img_w / ratio)
 
-            # bottom -= int(img_h - img_w / ratio)
         img_new = img.crop((left, top, right, bottom))
-
-        # Thumbnail the image
-        # img_new.thumbnail((width, height))
-
         img_new = img_new.resize((width, height), Image.ANTIALIAS)
     else:
         img_new = img
@@ -258,36 +289,6 @@ def _crop_center(img):
     return center
 
 
-def qrcode_detect(img):
-    """
-    Detect if there is QRcode in given image
-    :param img: image object
-    :return: boolean value if QRcode is existed
-    """
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gb = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(gb, 100, 200)
-
-    contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    if hierarchy is None or contours is None or not (len(hierarchy) and len(contours)):
-        return False
-    hierarchy = hierarchy[0]
-    found = []
-    for i in range(len(contours)):
-        k = i
-        c = 0
-        while hierarchy[k][2] != -1:
-            k = hierarchy[k][2]
-            c += 1
-        if c >= 5:
-            found.append(i)
-
-    if len(found) == 3 and _variance(found) > 20:
-        return True
-    else:
-        return False
-
-
 def _variance(data):
     """
     Calculate variance for a list of number
@@ -318,19 +319,58 @@ def _gen_prefix():
 
 
 if __name__ == '__main__':
-    if len(sys.argv) <= 1:
-        print('Not enough params!')
-        exit()
-    elif len(sys.argv) == 2:
-        try:
-            url = sys.argv[1]
-            local_path = crop_image(url)
-            print('Cropped successfully! Image path is %s' % local_path)
-        except Exception, err:
-            print(err)
-    # print(crop_image('http://img1.gtimg.com/news/pics/hv1/21/77/2098/136442106.jpg',
-    #                  160, 90, face_detect=1))
-    # print(crop_image_file(source='http://www.weixinju.com/uploadfile/2012/1206/20121206104941268.jpg',
-    #                       img_type='jpg',
-    #                       height=0,
-    #                       width=0))
+    parser = argparse.ArgumentParser(description='Image cropper')
+    result = {}
+    try:
+        parser.add_argument('-i', action='store', required=True,
+                            dest='input',
+                            help='Url or filename of source image')
+        parser.add_argument('-w', action='store', default=0, type=int,
+                            dest='width',
+                            help='Width of cropped image')
+        parser.add_argument('-l', action='store', default=0, type=int,
+                            dest='height',
+                            help='Height of cropped image')
+        parser.add_argument('-t', action='store', default='jpg',
+                            dest='type',
+                            help='File type of cropped image, default is jpg')
+        parser.add_argument('-q', action='store', default=100, type=int,
+                            dest='quality',
+                            help='Quality of cropped image, 1 to 100')
+        parser.add_argument('-f', action='store_true', default=False,
+                            dest='face_detect',
+                            help='Enable face detection')
+        parser.add_argument('-m', action='store', default='url',
+                            dest='mode',
+                            help='Imaging mode: url | file | qr')
+        result = parser.parse_args(sys.argv[1:])
+    except Exception, err:
+        print('Params error: %s' % err)
+        exit(1)
+
+    try:
+        mode = result.mode
+        source = result.input
+        if mode == 'qr':
+            is_qrcode = qrcode_detect(source)
+            print('Image did%s contain QR code' % (' not' * (not is_qrcode)))
+        elif mode == 'file':
+            local_path = crop_image_file(source,
+                                         width=result.width,
+                                         height=result.height,
+                                         img_type=result.type,
+                                         quality=result.quality,
+                                         face_detect=result.face_detect)
+            print('Cropped remote image successfully! Image path is %s' % local_path)
+        elif mode == 'url':
+            local_path = crop_image(source,
+                                    width=result.width,
+                                    height=result.height,
+                                    img_type=result.type,
+                                    quality=result.quality,
+                                    face_detect=result.face_detect)
+            print('Cropped image file successfully! Image path is %s' % local_path)
+        else:
+            raise Exception('Unhandled args')
+    except Exception, err:
+        print(err)
