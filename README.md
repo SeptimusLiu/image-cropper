@@ -45,6 +45,7 @@ result = imaging.crop_image(url,
 
 ## Test
 Original image:
+
 ![test_origin](./test.jpg)
 
 In case 1, disable face detection:
@@ -52,6 +53,7 @@ In case 1, disable face detection:
 python imaging.py -i test.jpg -w 90 -l 160 -m file
 ```
 The result image:
+
 ![test_origin](./test_r1.jpg)
 
 In case 2, enable face detection:
@@ -59,4 +61,5 @@ In case 2, enable face detection:
 python imaging.py -i test.jpg -w 90 -l 160 -m file -f
 ```
 The result image:
+
 ![test_origin](./test_r2.jpg)
