@@ -12,6 +12,10 @@ import cv2
 import datetime
 import detector
 import httplib2
+import httplib2
+import cStringIO
+import cv2
+import datetime
 import math
 import numpy as np
 import os
@@ -215,33 +219,32 @@ def _crop_center(img):
     :param img: image object
     :return: coordination of cropping center: [x, y]
     """
-    # Create haar cascade
-    face_cascade = cv2.CascadeClassifier(_casc_path)
+    try:
+        # Create haar cascade
+        face_cascade = cv2.CascadeClassifier(_casc_path)
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.1,
-        minNeighbors=10,
-        minSize=(15, 15),
-        flags=cv2.cv.CV_HAAR_SCALE_IMAGE
-    )
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=30,
+            minSize=(15, 15),
+            flags=cv2.cv.CV_HAAR_SCALE_IMAGE
+        )
 
-    center = [0, 0]
-    point_num = len(faces)
-    if point_num == 0:
-        return center
-    for (x, y, w, h) in faces:
-        center[0] += (x + w/2)
-        center[1] += (y + h/2)
-        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        center = [0, 0]
+        point_num = len(faces)
+        if point_num == 0:
+            raise
+    except:
+        raise
 
-    # center[0] /= point_num
-    # center[1] /= point_num
-
-    cv2.rectangle(img, (center[0], center[1]), (center[0] + 5, center[1] + 5), (0, 0, 255), 2)
-    cv2.imshow("Faces found", img)
-    cv2.waitKey(0)
+    max_area = 0
+    for i, (x, y, w, h) in enumerate(faces):
+        if max_area < w * h:
+            max_area = w * h
+            center[0] = x + w/2
+            center[1] = y + h/2
     return center
 
 
