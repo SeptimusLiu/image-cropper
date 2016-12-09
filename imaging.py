@@ -7,10 +7,11 @@ Crop image automatically from either a remote address or base64 encoded stream.
 """
 
 import argparse
-import httplib2
 import cStringIO
 import cv2
 import datetime
+import detector
+import httplib2
 import math
 import numpy as np
 import os
@@ -144,51 +145,6 @@ def crop_image_file(filename, width=0, height=0, img_type='jpg', quality=100, **
         raise Exception('Image file saving failed: %s' % err)
 
     return local_path
-
-
-def qrcode_detect(filename):
-    """
-    Detect if there is QRcode in given image
-    :param img: image object
-    :return: boolean value if QRcode is existed
-    """
-
-    try:
-        # Fetch image stream from response
-        fp = open(filename, 'rb')
-        content = fp.read()
-        fp.close()
-    except Exception, err:
-        raise Exception('%s opening image file failed: %s' % (filename, err))
-
-    try:
-        img_detect = np.asarray(bytearray(content), dtype='uint8')
-        img = cv2.imdecode(img_detect, cv2.IMREAD_COLOR)
-
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        gb = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(gb, 100, 200)
-
-        contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        if hierarchy is None or contours is None or not (len(hierarchy) and len(contours)):
-            return False
-        hierarchy = hierarchy[0]
-        found = []
-        for i in range(len(contours)):
-            k = i
-            c = 0
-            while hierarchy[k][2] != -1:
-                k = hierarchy[k][2]
-                c += 1
-            if c >= 5:
-                found.append(i)
-
-        if len(found) == 3 and _variance(found) > 20:
-            return True
-        else:
-            return False
-    except Exception, err:
-        raise Exception('Detecting image file %s failed: %s' % (filename, err))
 
 
 def _get_sized_img(img, content, width, height, face_detect=0):
@@ -342,7 +298,7 @@ if __name__ == '__main__':
                             help='Enable face detection')
         parser.add_argument('-m', action='store', default='url',
                             dest='mode',
-                            help='Imaging mode: url | file | qr')
+                            help='Imaging mode: url | file | qr | text')
         result = parser.parse_args(sys.argv[1:])
     except Exception, err:
         print('Params error: %s' % err)
@@ -352,8 +308,11 @@ if __name__ == '__main__':
         mode = result.mode
         source = result.input
         if mode == 'qr':
-            is_qrcode = qrcode_detect(source)
-            print('Image did%s contain QR code' % (' not' * (not is_qrcode)))
+            is_qrcode = detector.qrcode_detect(source)
+            print('Image did%s contain QR code' % (' NOT' * (not is_qrcode)))
+        elif mode == 'text':
+            is_text = detector.text_detect(source)
+            print('Image did%s contain too many text' % (' NOT' * (not is_text)))
         elif mode == 'file':
             local_path = crop_image_file(source,
                                          width=result.width,

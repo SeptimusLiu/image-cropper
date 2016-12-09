@@ -1,5 +1,7 @@
 /data/
+/test/
 /.cache/
 .idea/
 *.jpg
+*.png
 *.pyc
