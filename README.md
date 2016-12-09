@@ -1,6 +1,11 @@
 # image-cropper
 A tool that can help you cropping, resizing and compressing images in an optimized way.
 
+## Functions:
+- Crop image related on where a person face appears
+- Detect a picture if it contains QR code
+- Detect a picture if it contains too many text
+
 ## Dependencies:
 - PIL
 - opencv2
@@ -24,11 +29,11 @@ optional arguments:
   -t TYPE     File type of cropped image, default is jpg
   -q QUALITY  Quality of cropped image, 1 to 100
   -f          Enable face detection
-  -m MODE     Imaging mode: url | file | qr
+  -m MODE     Imaging mode: url | file | qr | text
 ```
 Amoung them: 
 - if width or height is not given, image will remains to its original size.
-- -m set a mode for image cropper, **url** calls for cropping remote image; **file** calls for cropping local image by its file name; **qr** means detecting a local image whether it contains a QR code, the result is like: `Image did (not) contain QR code`
+- -m set a mode for image cropper, **url** calls for cropping remote image; **file** calls for cropping local image by its file name; **qr** means detecting a local image whether it contains a QR code, the result is like: `Image did (not) contain QR code`; **text** is like **qr**.
 - -f enables face detection, in which cropping will base on the coordination of the face appeared in images.
 
 Or you can import it as a module, and call it from your python code:
@@ -44,6 +49,9 @@ result = imaging.crop_image(url,
 ```
 
 ## Test
+
+### Crop image
+
 Original image:
 
 ![test_origin](./test.jpg)
@@ -63,3 +71,20 @@ python imaging.py -i test.jpg -w 90 -l 160 -m file -f
 The result image:
 
 ![test_origin](./test_r2.jpg)
+
+### Text detection
+
+Detecting image:
+
+![test_detect](./test_text.jpg)
+
+Run this command:
+
+```
+python imaging.py -i test_text.jpg -m file
+```
+
+It turns out the result:
+```
+Image did contain too many text
+```
